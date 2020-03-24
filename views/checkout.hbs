@@ -189,6 +189,8 @@
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
 
+    document.querySelector('#card-button').disabled = true;
+
     const { paymentIntent, error } = await stripe.confirmCardPayment(
       '{{ client_secret }}',
       {
@@ -216,6 +218,7 @@
       console.log('confirm card payment error: ', error);
       document.querySelector('#payment-error-text').textContent = error.message;
       document.querySelector('#payment-error').style = 'display:fixed';
+      document.querySelector('#card-button').disabled = false;
     } else {
       console.log('payment intent: ', paymentIntent);
 
