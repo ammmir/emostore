@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 
 const express = require('express');
 const expressHandlebars = require('express-handlebars');
@@ -11,7 +12,9 @@ const app = express();
 app.set('trust proxy', 1); // trust first proxy
 app.use(session({
   secret: 'supersecure',
-  name: 'SID'
+  name: 'SID',
+  resave: false,
+  saveUninitialized: false,
 }));
 app.engine('.hbs', expressHandlebars({ extname: '.hbs' }));
 app.set('view engine', '.hbs');
@@ -24,10 +27,6 @@ app.get('/', async (req, res) => {
 });
 
 app.get('/checkout', async (req, res) => {
-  // start checkout flow, generate unique idempotency key
-  const cartId = crypto.randomBytes(16).toString('hex');
-  req.session['cart'] = cartId;
-
   const price = await products.price();
 
   const paymentIntent = await stripe.paymentIntents.create({
@@ -39,13 +38,28 @@ app.get('/checkout', async (req, res) => {
       emoji: req.query.emoji, // UTF-8!
     },
   }, {
-    idempotencyKey: cartId,
+    idempotencyKey: crypto.randomBytes(16).toString('hex'),
   });
+
+  // store payment intent in session so we can record the order later
+  req.session['payment_intent_id'] = paymentIntent.id;
 
   res.render('checkout', { emoji: req.query.emoji, price: price / 100, client_secret: paymentIntent.client_secret });
 });
 
 app.get('/confirmation', async (req, res) => {
+  // retrieve payment intent and store the order details in our local "database"
+  const paymentIntentId = req.session['payment_intent_id'];
+  if (!paymentIntentId) {
+    return res.status(500).send('no payment intent id');
+  }
+
+  const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+  fs.appendFile(__dirname + '/orders.txt', JSON.stringify(paymentIntent) + "\n", () => console.log('saved order: ', paymentIntent));
+
+  delete req.session['payment_intent_id'];
+
   res.render('confirmation');
 });
 
